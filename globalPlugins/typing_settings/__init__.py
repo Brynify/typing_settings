@@ -1,4 +1,5 @@
-import nvwave
+from .sound_lib import output
+from .sound_lib.stream import FileStream
 import globalPluginHandler
 import speech
 import config
@@ -13,13 +14,26 @@ from ui import message
 from scriptHandler import script
 from gui import SettingsPanel, NVDASettingsDialog, guiHelper
 from controlTypes import STATE_READONLY, STATE_EDITABLE
+
+bass_output=output.Output()
+chans=[]
+
+#Internal
+def play_sound_bass(filename,volume=-1):
+	global chans
+	chans.append(FileStream(file=filename, autofree=True))
+	chans[len(chans)-1].volume=(config.conf["typing_settings"]["volume"]/100 if volume==-1 else volume/100)
+	chans[len(chans)-1].play(True)
+	while len(chans)>10: chans.remove(chans[0])
+
 def confinit():
 	confspec = {
 		"typingsnd": "boolean(default=true)",
 		"typing_sound": f"string(default={get_sounds_folders()[0]})",
 		"speak_characters": "integer(default=2)",
 		"speak_words": "integer(default=2)",
-		"speak_on_protected":"boolean(default=True)"}
+		"speak_on_protected":"boolean(default=True)",
+		"volume": "integer(default=100)"}
 	config.confspec["typing_settings"] = confspec
 
 addonHandler.initTranslation()
@@ -63,12 +77,15 @@ class TypingSettingsPanel(SettingsPanel):
 		self.playTypingSounds.SetValue(config.conf["typing_settings"]["typingsnd"])
 		self.speakPasswords = sHelper.addItem(wx.CheckBox(self, label=_("speak passwords")))
 		self.speakPasswords.SetValue(config.conf["typing_settings"]["speak_on_protected"])
+		self.volumeSliderLabel = sHelper.addItem(wx.StaticText(self, label=_("Volume")))
+		self.volumeSlider = sHelper.addItem(wx.Slider(self))
+		self.volumeSlider.SetValue(config.conf["typing_settings"]["volume"])
 		try:
 			self.speakCharacters.SetSelection(config.conf["typing_settings"]["speak_characters"])
 		except:
 			self.speakCharacters.SetSelection(0)
 		try:
-			self.speakWords.SetSelection(config.conf["typing_settings"]["speak_characters"])
+			self.speakWords.SetSelection(config.conf["typing_settings"]["speak_words"])
 		except:
 			self.speakWords.SetSelection(0)
 		self.OnChangeTypingSounds(None)
@@ -76,6 +93,7 @@ class TypingSettingsPanel(SettingsPanel):
 		self.playTypingSounds.Bind(wx.EVT_CHECKBOX, self.OnChangeTypingSounds)
 		self.typingSound.Bind(wx.EVT_CHOICE, self.onChange)
 		self.sounds.Bind(wx.EVT_CHOICE, self.onPlay)
+		self.volumeSlider.Bind(wx.EVT_SLIDER, self.onPlay)
 
 	def postInit(self):
 		self.typingSound.SetFocus()
@@ -92,7 +110,7 @@ class TypingSettingsPanel(SettingsPanel):
 		except: pass
 
 	def onPlay(self, event):
-		nvwave.playWaveFile(f"{effects_dir}/{self.typingSound.GetStringSelection()}/{self.sounds.GetStringSelection()}", True)
+		play_sound_bass(f"{effects_dir}/{self.typingSound.GetStringSelection()}/{self.sounds.GetStringSelection()}",volume=self.volumeSlider.GetValue())
 
 	def onSave(self):
 		config.conf["typing_settings"]["typing_sound"] = self.typingSound.GetStringSelection()
@@ -100,6 +118,7 @@ class TypingSettingsPanel(SettingsPanel):
 		config.conf["typing_settings"]["speak_words"] = self.speakWords.GetSelection()
 		config.conf["typing_settings"]["speak_on_protected"] = self.speakPasswords.GetValue()
 		config.conf["typing_settings"]["typingsnd"] = self.playTypingSounds.GetValue()
+		config.conf["typing_settings"]["volume"] = self.volumeSlider.GetValue()
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def __init__(self, *args, **kwargs):
@@ -120,12 +139,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def event_typedCharacter(self, obj, nextHandler, ch):
 		if self.IsEditable(obj) and config.conf["typing_settings"]["typingsnd"]:
 			if ch ==" ":
-				nvwave.playWaveFile(os.path.join(effects_dir, config.conf['typing_settings']['typing_sound'], "space.wav"), True)
+				play_sound_bass(os.path.join(effects_dir, config.conf['typing_settings']['typing_sound'], "space.wav"))
 			elif ch == "\b":
-				nvwave.playWaveFile(os.path.join(effects_dir, config.conf['typing_settings']['typing_sound'], "delete.wav"), True)
+				play_sound_bass(os.path.join(effects_dir, config.conf['typing_settings']['typing_sound'], "delete.wav"))
 			else:
 				count = self.SoundsCount(config.conf["typing_settings"]["typing_sound"])
-				nvwave.playWaveFile(os.path.join(effects_dir, config.conf['typing_settings']['typing_sound'], "typing.wav" if count<=0 else f"typing_{randint(1, count)}.wav"), True)
+				play_sound_bass(os.path.join(effects_dir, config.conf['typing_settings']['typing_sound'], "typing.wav" if count<=0 else f"typing_{randint(1, count)}.wav"))
 		nextHandler()
 
 	def SoundsCount(self, name):
